@@ -4,6 +4,7 @@ import argparse
 import logging
 import os
 import random
+import re
 import string
 import subprocess
 import sys
@@ -111,7 +112,7 @@ int main(int argc, char* argv[]) {
     execute(f"cbmc --property main.assertion.1 --no-built-in-assertions --reachability-slice --dimacs --outfile {outfile} attack_hash")
 
 
-def generate_formulas(input_len=32, missing_bytes=2):
+def generate_formulas(input_len=32, missing_bytes=2, unsat=False):
 
     test_text = generate_random_string(input_len)
     log.info("test_text: %s", test_text)
@@ -119,6 +120,20 @@ def generate_formulas(input_len=32, missing_bytes=2):
     hash_condition = execute(f"./showhash {test_text}").decode().strip()
     log.info("Full hash condition: %s", hash_condition)
 
+    unsat_suffix = ""
+    if unsat:
+        matches = re.findall(" == \d+ ", hash_condition)
+        log.info("Matches: %r", matches)
+        rindex = random.choice(range(0,255))
+        r = matches[rindex]
+        n = r
+        while r == n:
+            d = random.choice(range(0,255))
+            n = f" == {d} "
+        log.debug("Match: %r", r)
+        hash_condition = hash_condition.replace(r, n, 1)
+        log.info("NEW hash condition: %s", hash_condition)
+        unsat_suffix = f"_U{rindex}"
 
     input_bytes = len(test_text)
     drop_bytes = sorted(random.sample(range(0, input_bytes-1), missing_bytes))
@@ -126,7 +141,7 @@ def generate_formulas(input_len=32, missing_bytes=2):
 
     missing_name = '_'.join([str(x) for x in drop_bytes])
 
-    c_file_name=f"asconhashv12_opt64_H{len(test_text)}_M{missing_bytes}-{test_text}_m{missing_name}.c"
+    c_file_name=f"asconhashv12_opt64_H{len(test_text)}_M{missing_bytes}-{test_text}_m{missing_name}{unsat_suffix}.c"
     generate_C_file(c_file_name, test_text, hash_condition, set(drop_bytes))
 
 
@@ -152,6 +167,13 @@ def main():
         default=1,
         type=int,
         help="Number of characters to be guessed",
+    )
+    parser.add_argument(
+        "-u",
+        "--unsat",
+        default=False,
+        action="store_true",
+        help="Change a random byte in the hash result",
     )
     args = parser.parse_args()
     args = vars(args)
